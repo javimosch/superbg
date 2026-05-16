@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-func Run(command []string, logFile string, extraEnv []string) (*exec.Cmd, error) {
+func Run(command []string, logFile string, extraEnv []string, dir string) (*exec.Cmd, error) {
 	if len(command) == 0 {
 		return nil, fmt.Errorf("no command specified")
 	}
@@ -25,6 +25,10 @@ func Run(command []string, logFile string, extraEnv []string) (*exec.Cmd, error)
 
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+
+	if dir != "" {
+		cmd.Dir = dir
 	}
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{

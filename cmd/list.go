@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -9,10 +10,14 @@ import (
 	"github.com/superbg/cli/state"
 )
 
-func List() error {
+func List(asJSON bool) error {
 	s, err := state.Load()
 	if err != nil {
 		return err
+	}
+
+	if asJSON {
+		return json.NewEncoder(os.Stdout).Encode(s)
 	}
 
 	if len(s.Jobs) == 0 {

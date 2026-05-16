@@ -1,13 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/superbg/cli/process"
 	"github.com/superbg/cli/state"
 )
 
-func Status(idOrPID string) error {
+func Status(idOrPID string, asJSON bool) error {
 	s, err := state.Load()
 	if err != nil {
 		return err
@@ -23,6 +25,31 @@ func Status(idOrPID string) error {
 
 	if job.Status == state.StatusRunning && !alive {
 		status = "exited (unexpected)"
+	}
+
+	if asJSON {
+		info := map[string]interface{}{
+			"id":            job.ID,
+			"name":          job.Name,
+			"command":       job.Command,
+			"pid":           job.PID,
+			"status":        status,
+			"started_at":    job.StartedAt,
+			"stopped_at":    job.StoppedAt,
+			"exit_code":     job.ExitCode,
+			"auto_restart":  job.AutoRestart,
+			"restart_count": job.RestartCount,
+			"max_restarts":  job.MaxRestarts,
+			"monitor_pid":   job.MonitorPID,
+		}
+		if job.AutoRestart && job.MonitorPID > 0 {
+			info["monitor_alive"] = process.IsRunning(job.MonitorPID)
+		}
+		logFile, err := state.LogFile(job.ID)
+		if err == nil {
+			info["log_file"] = logFile
+		}
+		return json.NewEncoder(os.Stdout).Encode(info)
 	}
 
 	fmt.Printf("ID:        %d\n", job.ID)
@@ -41,7 +68,11 @@ func Status(idOrPID string) error {
 		fmt.Printf("Watch:     yes (restarts %d/%d)\n", job.RestartCount, job.MaxRestarts)
 		if job.MonitorPID > 0 {
 			monitorAlive := process.IsRunning(job.MonitorPID)
-			fmt.Printf("Monitor:   %d (%s)\n", job.MonitorPID, map[bool]string{true: "alive", false: "dead"}[monitorAlive])
+			aliveStr := "alive"
+			if !monitorAlive {
+				aliveStr = "dead"
+			}
+			fmt.Printf("Monitor:   %d (%s)\n", job.MonitorPID, aliveStr)
 		}
 	}
 

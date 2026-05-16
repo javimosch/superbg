@@ -17,10 +17,12 @@ import (
 )
 
 type runFlags struct {
-	watch      bool
+	watch       bool
 	maxRestarts int
-	envFile    string
-	cmdArgs    []string
+	envFile     string
+	name        string
+	cwd         string
+	cmdArgs     []string
 }
 
 func parseRunFlags(args []string) (*runFlags, error) {
@@ -51,6 +53,18 @@ func parseRunFlags(args []string) (*runFlags, error) {
 		} else if strings.HasPrefix(a, "--env-file=") {
 			f.envFile = strings.TrimPrefix(a, "--env-file=")
 			i++
+		} else if a == "--name" && i+1 < len(args) {
+			f.name = args[i+1]
+			i += 2
+		} else if strings.HasPrefix(a, "--name=") {
+			f.name = strings.TrimPrefix(a, "--name=")
+			i++
+		} else if a == "--cwd" && i+1 < len(args) {
+			f.cwd = args[i+1]
+			i += 2
+		} else if strings.HasPrefix(a, "--cwd=") {
+			f.cwd = strings.TrimPrefix(a, "--cwd=")
+			i++
 		} else if strings.HasPrefix(a, "--") {
 			return nil, fmt.Errorf("unknown flag: %s", a)
 		} else {
@@ -59,7 +73,7 @@ func parseRunFlags(args []string) (*runFlags, error) {
 		}
 	}
 	if len(f.cmdArgs) == 0 {
-		return nil, fmt.Errorf("usage: superbg run [--watch] [--max-restarts=N] [--env-file FILE] <command> [args...]")
+		return nil, fmt.Errorf("usage: superbg run [--watch] [--max-restarts=N] [--env-file FILE] [--name NAME] [--cwd DIR] <command> [args...]")
 	}
 	return f, nil
 }
@@ -106,14 +120,17 @@ func Run(args []string) error {
 		return err
 	}
 
-	name := filepath.Base(flags.cmdArgs[0])
+	name := flags.name
+	if name == "" {
+		name = filepath.Base(flags.cmdArgs[0])
+	}
 
 	logFile, err := state.LogFile(s.NextID)
 	if err != nil {
 		return err
 	}
 
-	cmd, err := process.Run(flags.cmdArgs, logFile, extraEnv)
+	cmd, err := process.Run(flags.cmdArgs, logFile, extraEnv, flags.cwd)
 	if err != nil {
 		return err
 	}
@@ -122,8 +139,7 @@ func Run(args []string) error {
 	job := s.AddJob(name, flags.cmdArgs, pid)
 
 	if flags.watch {
-		monitorPID := os.Getpid()
-		job.MonitorPID = monitorPID
+		job.MonitorPID = os.Getpid()
 		job.AutoRestart = true
 		job.MaxRestarts = flags.maxRestarts
 	}
@@ -136,7 +152,7 @@ func Run(args []string) error {
 	fmt.Printf("Logs: %s\n", logFile)
 
 	if flags.watch {
-		return runWatch(cmd, job.ID, flags.maxRestarts, logFile, extraEnv)
+		return runWatch(cmd, job.ID, flags.maxRestarts, logFile, extraEnv, flags.cwd)
 	}
 
 	go func() {
@@ -153,7 +169,7 @@ func backoff(attempt int) time.Duration {
 	return d
 }
 
-func runWatch(initialCmd *exec.Cmd, jobID, maxRestarts int, logFile string, extraEnv []string) error {
+func runWatch(initialCmd *exec.Cmd, jobID, maxRestarts int, logFile string, extraEnv []string, cwd string) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigCh)
@@ -190,7 +206,10 @@ func runWatch(initialCmd *exec.Cmd, jobID, maxRestarts int, logFile string, extr
 	}
 
 	cmd := initialCmd
+	fastCrashes := 0
+
 	for restarts := 0; ; {
+		startTime := time.Now()
 		cmd.Wait()
 
 		if shutdown.Load() {
@@ -199,10 +218,21 @@ func runWatch(initialCmd *exec.Cmd, jobID, maxRestarts int, logFile string, extr
 			return nil
 		}
 
+		trimLog(logFile)
+
 		if restarts >= maxRestarts {
 			markState(state.StatusExited)
 			fmt.Printf("Max restarts (%d) reached. Monitor exiting.\n", maxRestarts)
 			return nil
+		}
+
+		if time.Since(startTime) < time.Second {
+			fastCrashes++
+		} else {
+			fastCrashes = 0
+		}
+		if fastCrashes >= 3 {
+			fmt.Fprintf(os.Stderr, "Warning: process crashing rapidly (under 1s runtime). Check the logs.\n")
 		}
 
 		d := backoff(restarts)
@@ -219,6 +249,7 @@ func runWatch(initialCmd *exec.Cmd, jobID, maxRestarts int, logFile string, extr
 			initialCmd.Args,
 			logFile,
 			extraEnv,
+			cwd,
 		)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Restart failed: %s\n", err)
