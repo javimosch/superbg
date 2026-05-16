@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/superbg/cli/cmd"
 )
@@ -11,14 +10,23 @@ import (
 const usage = `superbg - Super Background Process Manager
 
 Usage:
-  superbg run <command> [args...]    Run a command in the background
-  superbg list                       List background processes
-  superbg stop <id|pid>              Stop a process (SIGTERM)
-  superbg kill <id|pid>              Kill a process (SIGKILL)
-  superbg logs [--follow|-f] <id|pid>  Show process logs
-  superbg status <id|pid>            Show process status
-  superbg attach <id|pid>            Follow process logs in real-time
-  superbg help                       Show this help message
+  superbg run [--watch] [--max-restarts=N] [--env-file FILE] <command> [args...]
+                          Run a command in the background
+  superbg list            List background processes
+  superbg stop [--timeout N] <id|pid>
+                          Stop a process (SIGTERM → SIGKILL after timeout)
+  superbg kill <id|pid>   Kill a process (SIGKILL)
+  superbg logs [--follow|-f] <id|pid>
+                          Show process logs
+  superbg status <id|pid> Show process status
+  superbg attach <id|pid> Follow process logs in real-time
+  superbg help            Show this help message
+
+Flags:
+  --watch         Auto-restart the process when it exits
+  --max-restarts=N  Max restarts (default 10, with --watch)
+  --env-file FILE Load environment variables from FILE
+  --timeout N     Seconds to wait before SIGKILL (default 5)
 `
 
 func main() {
@@ -38,25 +46,29 @@ func main() {
 	case "list":
 		err = cmd.List()
 	case "stop":
-		err = requireArgs(args, "stop <id|pid>")
-		if err == nil {
-			err = cmd.Stop(args[0])
+		if len(args) == 0 {
+			err = fmt.Errorf("missing arguments.\nUsage: superbg stop [--timeout N] <id|pid>")
+		} else {
+			err = cmd.Stop(args)
 		}
 	case "kill":
-		err = requireArgs(args, "kill <id|pid>")
-		if err == nil {
-			err = cmd.Kill(args[0])
+		if len(args) == 0 {
+			err = fmt.Errorf("missing arguments.\nUsage: superbg kill <id|pid>")
+		} else {
+			err = cmd.Kill(args)
 		}
 	case "logs":
 		err = handleLogs(args)
 	case "status":
-		err = requireArgs(args, "status <id|pid>")
-		if err == nil {
+		if len(args) == 0 {
+			err = fmt.Errorf("missing arguments.\nUsage: superbg status <id|pid>")
+		} else {
 			err = cmd.Status(args[0])
 		}
 	case "attach":
-		err = requireArgs(args, "attach <id|pid>")
-		if err == nil {
+		if len(args) == 0 {
+			err = fmt.Errorf("missing arguments.\nUsage: superbg attach <id|pid>")
+		} else {
 			err = cmd.Attach(args[0])
 		}
 	case "help", "--help", "-h":
@@ -72,13 +84,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
-}
-
-func requireArgs(args []string, usageStr string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("missing arguments.\nUsage: superbg %s", usageStr)
-	}
-	return nil
 }
 
 func handleLogs(args []string) error {
@@ -97,5 +102,5 @@ func handleLogs(args []string) error {
 		return fmt.Errorf("missing id/pid.\nUsage: superbg logs [--follow|-f] <id|pid>")
 	}
 
-	return cmd.Logs(strings.Join(filtered, ""), follow)
+	return cmd.Logs(filtered[0], follow)
 }

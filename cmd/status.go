@@ -37,6 +37,13 @@ func Status(idOrPID string) error {
 	if job.ExitCode != 0 {
 		fmt.Printf("Exit Code: %d\n", job.ExitCode)
 	}
+	if job.AutoRestart {
+		fmt.Printf("Watch:     yes (restarts %d/%d)\n", job.RestartCount, job.MaxRestarts)
+		if job.MonitorPID > 0 {
+			monitorAlive := process.IsRunning(job.MonitorPID)
+			fmt.Printf("Monitor:   %d (%s)\n", job.MonitorPID, map[bool]string{true: "alive", false: "dead"}[monitorAlive])
+		}
+	}
 
 	logFile, err := state.LogFile(job.ID)
 	if err == nil {

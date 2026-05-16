@@ -19,14 +19,18 @@ const (
 )
 
 type Job struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Command   []string  `json:"command"`
-	PID       int       `json:"pid"`
-	Status    JobStatus `json:"status"`
-	StartedAt string    `json:"started_at"`
-	StoppedAt string    `json:"stopped_at,omitempty"`
-	ExitCode  int       `json:"exit_code,omitempty"`
+	ID           int       `json:"id"`
+	Name         string    `json:"name"`
+	Command      []string  `json:"command"`
+	PID          int       `json:"pid"`
+	MonitorPID   int       `json:"monitor_pid,omitempty"`
+	AutoRestart  bool      `json:"auto_restart,omitempty"`
+	MaxRestarts  int       `json:"max_restarts,omitempty"`
+	RestartCount int       `json:"restart_count,omitempty"`
+	Status       JobStatus `json:"status"`
+	StartedAt    string    `json:"started_at"`
+	StoppedAt    string    `json:"stopped_at,omitempty"`
+	ExitCode     int       `json:"exit_code,omitempty"`
 }
 
 type State struct {
@@ -125,18 +129,17 @@ func (s *State) Save() error {
 	return nil
 }
 
-func (s *State) AddJob(name string, command []string, pid int) Job {
-	job := Job{
+func (s *State) AddJob(name string, command []string, pid int) *Job {
+	s.Jobs = append(s.Jobs, Job{
 		ID:        s.NextID,
 		Name:      name,
 		Command:   command,
 		PID:       pid,
 		Status:    StatusRunning,
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
-	}
+	})
 	s.NextID++
-	s.Jobs = append(s.Jobs, job)
-	return job
+	return &s.Jobs[len(s.Jobs)-1]
 }
 
 func (s *State) RemoveJob(id int) {
